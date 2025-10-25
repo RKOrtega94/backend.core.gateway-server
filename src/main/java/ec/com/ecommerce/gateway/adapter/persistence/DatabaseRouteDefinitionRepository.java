@@ -1,7 +1,6 @@
 package ec.com.ecommerce.gateway.adapter.persistence;
 
 import ec.com.ecommerce.gateway.domain.entity.RouteEntity;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.FilterDefinition;
 import org.springframework.cloud.gateway.handler.predicate.PredicateDefinition;
@@ -18,9 +17,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Slf4j
-@RequiredArgsConstructor
-public class DatabaseRouteDefinitionRepository implements RouteDefinitionRepository {
-    private final RouteRepository repository;
+public record DatabaseRouteDefinitionRepository(RouteRepository repository) implements RouteDefinitionRepository {
+    private static final String SWAGGER_AGGREGATOR_PATH = "/swagger-aggregator";
 
     @Override
     public Flux<RouteDefinition> getRouteDefinitions() {
@@ -29,11 +27,8 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
             try {
                 List<RouteEntity> entities = repository.findAll();
                 log.info("Found {} route entities in database", entities.size());
-                
-                return Flux.fromIterable(entities)
-                        .filter(entity -> entity.getEnabled() != null && entity.getEnabled())
-                        .map(this::convertToRouteDefinition)
-                        .doOnNext(route -> log.debug("Loaded route: {} -> {}", route.getId(), route.getUri()));
+
+                return Flux.fromIterable(entities).filter(entity -> entity.getEnabled() != null && entity.getEnabled()).map(this::convertToRouteDefinition).doOnNext(route -> log.debug("Loaded route: {} -> {}", route.getId(), route.getUri()));
             } catch (Exception e) {
                 log.error("Error loading routes from database", e);
                 return Flux.empty();
@@ -45,31 +40,31 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
         try {
             RouteDefinition rd = new RouteDefinition();
             rd.setId(entity.getId());
-            
+
             // Set URI
             if (entity.getUri() != null) {
                 rd.setUri(URI.create(entity.getUri()));
             }
-            
+
             // Set predicates
             if (entity.getPredicates() != null && !entity.getPredicates().isEmpty()) {
                 List<PredicateDefinition> predicates = parsePredicates(entity.getPredicates());
                 rd.setPredicates(predicates);
                 log.debug("Set predicates for route {}: {}", entity.getId(), predicates);
             }
-            
+
             // Set filters
             if (entity.getFilters() != null && !entity.getFilters().isEmpty()) {
                 List<FilterDefinition> filters = parseFilters(entity.getFilters());
                 rd.setFilters(filters);
                 log.debug("Set filters for route {}: {}", entity.getId(), filters);
             }
-            
+
             // Set order
             if (entity.getOrderNum() != null) {
                 rd.setOrder(entity.getOrderNum());
             }
-            
+
             log.debug("Successfully converted route entity {} to route definition", entity.getId());
             return rd;
         } catch (Exception e) {
@@ -77,17 +72,13 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
             return null;
         }
     }
-    
+
     private List<PredicateDefinition> parsePredicates(String predicatesStr) {
         if (predicatesStr == null || predicatesStr.isEmpty()) {
             return Collections.emptyList();
         }
 
-        return Arrays.stream(predicatesStr.split(","))
-                .map(String::trim)
-                .filter(predicate -> !predicate.isEmpty())
-                .map(this::parsePredicateDefinition)
-                .collect(Collectors.toList());
+        return Arrays.stream(predicatesStr.split(",")).map(String::trim).filter(predicate -> !predicate.isEmpty()).map(this::parsePredicateDefinition).toList();
     }
 
     private PredicateDefinition parsePredicateDefinition(String predicate) {
@@ -122,22 +113,18 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
 
         return pd;
     }
-    
+
     private List<FilterDefinition> parseFilters(String filtersStr) {
         if (filtersStr == null || filtersStr.isEmpty()) {
             return Collections.emptyList();
         }
-        
-        return Arrays.stream(filtersStr.split(","))
-                .map(String::trim)
-                .filter(filter -> !filter.isEmpty())
-                .map(this::parseFilterDefinition)
-                .collect(Collectors.toList());
+
+        return Arrays.stream(filtersStr.split(",")).map(String::trim).filter(filter -> !filter.isEmpty()).map(this::parseFilterDefinition).toList();
     }
-    
+
     private FilterDefinition parseFilterDefinition(String filter) {
         FilterDefinition fd = new FilterDefinition();
-        
+
         if (filter.startsWith("StripPrefix=")) {
             fd.setName("StripPrefix");
             fd.addArg("parts", filter.substring(12));
@@ -159,11 +146,11 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
             // Handle malformed RewritePath filters from database - skip them
             log.warn("Invalid RewritePath format: {}, treating as simple redirect filter", filter);
             fd.setName("SetPath");
-            fd.addArg("template", "/swagger-aggregator");
-        } else if (filter.equals("/swagger-aggregator")) {
+            fd.addArg("template", SWAGGER_AGGREGATOR_PATH);
+        } else if (filter.equals(SWAGGER_AGGREGATOR_PATH)) {
             // Handle simple path filters
             fd.setName("SetPath");
-            fd.addArg("template", "/swagger-aggregator");
+            fd.addArg("template", SWAGGER_AGGREGATOR_PATH);
         } else {
             // Default filter - check if it's a valid filter name
             if (filter.contains("=")) {
@@ -176,7 +163,7 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
                 fd.setName(filter);
             }
         }
-        
+
         return fd;
     }
 
@@ -193,35 +180,33 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
             repository.save(entity);
         }).subscribeOn(Schedulers.boundedElastic())).then();
     }
-    
-    private String convertPredicatesToString(List<PredicateDefinition> predicates) {
-        if (predicates == null || predicates.isEmpty()) {
-            return "";
+
     private String convertPredicatesToString(List<PredicateDefinition> predicates) {
         if (predicates == null || predicates.isEmpty()) {
             return "";
         }
 
-        return predicates.stream()
-                .map(p -> {
-                    String args = p.getArgs().entrySet().stream()
-                            .map(e -> e.getKey() + "=" + e.getValue())
-                            .collect(Collectors.joining(";"));
-                    return p.getName() + "[" + args + "]";
-                })
-                .collect(Collectors.joining(","));
+        return predicates.stream().map(p -> {
+            String args = p.getArgs().entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining(";"));
+            return p.getName() + "[" + args + "]";
+        }).collect(Collectors.joining(","));
     }
+
+    private String convertFiltersToString(List<FilterDefinition> filters) {
+        if (filters == null || filters.isEmpty()) {
             return "";
         }
-        
-        return filters.stream()
-                .map(f -> f.getName() + (f.getArgs().isEmpty() ? "" : "=" + String.join(",", f.getArgs().values())))
-                .collect(Collectors.joining(","));
+
+        return filters.stream().map(f -> {
+            if (f.getArgs() == null || f.getArgs().isEmpty()) {
+                return f.getName();
+            }
+            return f.getName() + "=" + String.join(",", f.getArgs().values());
+        }).collect(Collectors.joining(","));
     }
 
     @Override
     public Mono<Void> delete(Mono<String> routeId) {
-        return routeId.flatMap(id -> Mono.fromRunnable(() -> repository.deleteById(id))
-                .subscribeOn(Schedulers.boundedElastic())).then();
+        return routeId.flatMap(id -> Mono.fromRunnable(() -> repository.deleteById(id)).subscribeOn(Schedulers.boundedElastic())).then();
     }
 }

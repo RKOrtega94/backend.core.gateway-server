@@ -22,12 +22,9 @@ public record DatabaseRouteDefinitionRepository(RouteRepository repository) impl
 
     @Override
     public Flux<RouteDefinition> getRouteDefinitions() {
-        log.debug("Loading route definitions from database");
         return Flux.defer(() -> {
             try {
                 List<RouteEntity> entities = repository.findAll();
-                log.info("Found {} route entities in database", entities.size());
-
                 return Flux.fromIterable(entities).filter(entity -> entity.getEnabled() != null && entity.getEnabled()).map(this::convertToRouteDefinition).doOnNext(route -> log.debug("Loaded route: {} -> {}", route.getId(), route.getUri()));
             } catch (Exception e) {
                 log.error("Error loading routes from database", e);

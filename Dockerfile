@@ -1,18 +1,35 @@
-FROM openjdk:24-slim
+FROM eclipse-temurin:25-jdk
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends adduser ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system appgroup \
+    && adduser --system --group appuser \
+    && mkdir -p /app/logs \
+    && chown -R appuser:appgroup /app/logs
+
+VOLUME ["/app/logs"]
 
 WORKDIR /app
 
-ARG APP_NAME=APP_NAME
-ARG APP_VERSION=0.0.1-SNAPSHOT
-ARG APP_PORT=8080
+ARG SERVICE_NAME=app
+ARG PROFILE=dev
+ARG SERVER_PORT=8080
 
-ENV APP_NAME=${APP_NAME}
-ENV APP_VERSION=${APP_VERSION}
-ENV APP_PORT=${APP_PORT}
-ENV APP_GRPC_PORT=${APP_GRPC_PORT}
+ENV SPRING_PROFILES_ACTIVE=${PROFILE}
+ENV SERVER_PORT=${SERVER_PORT}
+ENV REDIS_HOST=${REDIS_HOST}
+ENV REDIS_PORT=${REDIS_PORT}
 
-COPY build/libs/${APP_NAME}-${APP_VERSION}.jar app.jar
+COPY --chown=appuser:appgroup build/libs/${SERVICE_NAME}.jar app.jar
 
-EXPOSE ${APP_PORT}
+RUN chmod 755 app.jar
+USER appuser
+
+EXPOSE ${SERVER_PORT}
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD curl --fail http://localhost:${SERVER_PORT}/health/${SERVICE_NAME}/status || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
+CMD ["--spring.profiles.active=${SPRING_PROFILES_ACTIVE}", "--server.port=${SERVER_PORT}"]
